@@ -4,57 +4,28 @@ import superagent from 'superagent';
 import fs from 'fs-extra';
 import { App, getTargetId } from 'koishi-core';
 import { Collection, ObjectID } from 'mongodb';
+import sharp from 'sharp';
 import ffi from 'ffi-napi';
 import 'koishi-plugin-mongo';
 
-const tmpdir = path.join(os.tmpdir(), 'sayobot');
-fs.ensureDirSync(tmpdir);
-
-type Args = [
-    // dataColor profileColor signColor
-    string, string, string,
-    // mode user_id country username qq
-    number, number, string, string, string,
-    // sign background profileEdge dataEdge signEdge
-    string, string, string, string, string,
-    // opacity count300 count100 count50 playcount
-    number, number, number, number, number,
-    // total_score ranked_score total_hits pp_raw pp_country_rank
-    number, number, number, number, number,
-    // pp_rank count_ssh count_ss count_sh count_s
-    number, number, number, number, number,
-    // count_a total_seconds_played level accuracy stat_total_score
-    number, number, number, number, number,
-    // stat_ranked_score stat_total_hits stat_accuracy stat_pp_raw stat_level
-    number, number, number, number, number,
-    // stat_pp_rank stat_pp_country_rank stat_playcount stat_count_ssh stat_count_ss
-    number, number, number, number, number,
-    // stat_count_sh stat_count_s stat_count_a days out_path
-    number, number, number, number, string,
-];
-
 interface Lib {
-    MakePersonalCard: (...args: Args) => string,
+    MakePersonalCard: (args: string) => string,
+    Sayobot_SetPath: (key: string, dir: string) => any,
 }
 
 const sayobot: Lib = ffi.Library(path.resolve(__dirname, 'sayobot'), {
-    MakePersonalCard: ['string', [
-        'string', 'string', 'string', 'int', 'int',
-        'string', 'string', 'string', 'string', 'string',
-        'string', 'string', 'string', 'int', 'int',
-        'int', 'int', 'int', 'long long', 'long long',
-        'long long', 'float', 'int', 'int', 'int',
-        'int', 'int', 'int', 'int', 'int',
-        'float', 'double', 'long long', 'long long', 'int',
-        'double', 'float', 'float', 'int', 'int',
-        'long long', 'int', 'int', 'int', 'int',
-        'int', 'unsigned', 'string',
-    ]]
+    MakePersonalCard: ['string', ['string']],
+    Sayobot_SetPath: ['string', ['string', 'string']],
 });
 
+const PNG_PATH = path.resolve(__dirname, 'png');
+const FONT_PATH = path.resolve(__dirname, 'fonts');
 const BACK_PATH = path.resolve(__dirname, 'png', 'stat');
 const EDGE_PATH = path.resolve(__dirname, 'png', 'tk');
 const AVATAR_PATH = path.resolve(__dirname, 'png', 'avatars');
+
+sayobot.Sayobot_SetPath('png', PNG_PATH);
+sayobot.Sayobot_SetPath('font', FONT_PATH);
 
 interface GetUserResult {
     mode: number,
@@ -126,6 +97,22 @@ interface UserInfo {
     Background: string,
 }
 
+const DefaultUserInfo: UserInfo = {
+    _id: 123456,
+    account: 0,
+    sign: '无',
+    nickname: 'Sayobot',
+    Opacity: 50,
+    history: [],
+    ProfileEdge: 'adm0',
+    DataEdge: 'adm1',
+    SignEdge: 'adm1',
+    ProfileFontColor: '#000000',
+    DataFontColor: '#000000',
+    SignFontColor: '#000000',
+    Background: '1',
+}
+
 namespace Api {
     export const modes = { std: 0, taiko: 1, ctb: 2, mania: 3 }
 
@@ -180,8 +167,8 @@ export function apply(app: App) {
         }
 
         app.command('osu.set <nickname>', 'Bind osu account')
-            .shortcut('！set <nickname>', { prefix: false })
-            .shortcut('!set <nickname>', { prefix: false })
+            .shortcut('！set <nickname>', { prefix: false, fuzzy: true })
+            .shortcut('!set <nickname>', { prefix: false, fuzzy: true })
             .action(async ({ session }, nickname) => {
                 const account = await Api.getUserIDByNick(nickname);
                 await coll.updateOne(
@@ -202,8 +189,8 @@ export function apply(app: App) {
             });
 
         app.command('osu.updateSign <sign>', 'updatesign', { checkArgCount: false })
-            .shortcut('！更新框框', { prefix: false })
-            .shortcut('!更新框框', { prefix: false })
+            .shortcut('！更新框框', { prefix: false, fuzzy: true })
+            .shortcut('!更新框框', { prefix: false, fuzzy: true })
             .action(async ({ session }, sign) => {
                 if (!sign) return '更新个签有1个参数哦阁下';
                 const userInfo = await coll.findOne({ _id: session.userId });
@@ -267,14 +254,14 @@ export function apply(app: App) {
 
         app.command('osu.stat [userId] [day]', '', { minInterval: 3000 })
             .option('mode', '-m <mode>', { value: 'std' })
-            .shortcut('！o', { prefix: false })
-            .shortcut('!o', { prefix: false })
-            .shortcut('！t', { prefix: false, options: { mode: 'taiko' } })
-            .shortcut('!t', { prefix: false, options: { mode: 'taiko' } })
-            .shortcut('！c', { prefix: false, options: { mode: 'ctb' } })
-            .shortcut('!c', { prefix: false, options: { mode: 'ctb' } })
-            .shortcut('！m', { prefix: false, options: { mode: 'mania' } })
-            .shortcut('!m', { prefix: false, options: { mode: 'mania' } })
+            .shortcut('！o', { prefix: false, fuzzy: true, options: { mode: 'std' } })
+            .shortcut('!o', { prefix: false, fuzzy: true, options: { mode: 'std' } })
+            .shortcut('！t', { prefix: false, fuzzy: true, options: { mode: 'taiko' } })
+            .shortcut('!t', { prefix: false, fuzzy: true, options: { mode: 'taiko' } })
+            .shortcut('！c', { prefix: false, fuzzy: true, options: { mode: 'ctb' } })
+            .shortcut('!c', { prefix: false, fuzzy: true, options: { mode: 'ctb' } })
+            .shortcut('！m', { prefix: false, fuzzy: true, options: { mode: 'mania' } })
+            .shortcut('!m', { prefix: false, fuzzy: true, options: { mode: 'mania' } })
             .action(async ({ session, options }, userId, _day) => {
                 let day = 0;
                 let image = path.resolve(os.tmpdir(), new ObjectID().toHexString() + '.png');
@@ -282,18 +269,21 @@ export function apply(app: App) {
                     day = parseInt(_day);
                     if (Number.isNaN(day)) return '天数必须是数字哦';
                 }
-                if (!Api.modes[options.mode]) return '未知的模式';
+                if (Api.modes[options.mode] === undefined) return '未知的模式';
                 let userInfo: UserInfo;
                 if (userId) {
                     userInfo = await coll.findOne({ _id: getTargetId(userId) });
                     if (!userInfo) return '小夜还不认识这个人哦，阁下把他介绍给我吧';
                 } else {
                     userInfo = await coll.findOne({ _id: session.userId });
-                    if (!userInfo) return '阁下还没绑定哦，用set把阁下的名字告诉我吧';
+                    if (!userInfo) return '阁下还没绑定哦，用！set把阁下的名字告诉我吧';
                 }
+                userInfo = { ...DefaultUserInfo, ...userInfo };
                 if (!fs.existsSync(path.join(AVATAR_PATH, `${userInfo.account}.png`))) {
                     const result = await superagent.get(`https://a.ppy.sh/${userInfo.account}`);
-                    fs.writeFileSync(path.join(AVATAR_PATH, `${userInfo.account}.png`), result.text);
+                    if (result.text) {
+                        fs.writeFileSync(path.join(AVATAR_PATH, `${userInfo.account}.png`), result.text);
+                    }
                 }
                 if (day) {
                     let found: HistoryColumn;
@@ -310,36 +300,46 @@ export function apply(app: App) {
                     const current = await Api.getUser(userInfo.account, Api.modes[options.mode]);
                     const currentTotal = current.count300 + current.count100 + current.count50;
                     const foundTotal = found.count300 + found.count100 + found.count50;
-                    sayobot.MakePersonalCard(
-                        userInfo.DataFontColor, userInfo.ProfileFontColor, userInfo.SignFontColor,
-                        Api.modes[options.mode], userInfo.account, current.country, current.username, session.userId.toString(),
-                        userInfo.sign, userInfo.Background, userInfo.ProfileEdge, userInfo.DataEdge, userInfo.SignEdge,
-                        userInfo.Opacity, current.count300, current.count100, current.count50, current.playcount,
-                        current.total_score, current.ranked_score, currentTotal, current.pp_raw, current.pp_country_rank,
-                        current.pp_rank, current.count_rank_ssh, current.count_rank_ss, current.count_rank_sh, current.count_rank_s,
-                        current.count_rank_a, current.total_seconds_played, current.level, current.accuracy, found.total_score,
-                        found.ranked_score, foundTotal, found.accuracy, found.pp_raw, found.level,
-                        found.pp_rank, found.pp_country_rank, found.playcount, found.count_rank_ssh, found.count_rank_ss,
-                        found.count_rank_sh, found.count_rank_s, found.count_rank_a, day, image,
+                    const result = sayobot.MakePersonalCard(
+                        [
+                            userInfo.DataFontColor, userInfo.ProfileFontColor, userInfo.SignFontColor,
+                            Api.modes[options.mode], userInfo.account, current.country, current.username, session.userId.toString(),
+                            userInfo.sign, userInfo.Background, userInfo.ProfileEdge, userInfo.DataEdge, userInfo.SignEdge,
+                            userInfo.Opacity, current.count300, current.count100, current.count50, current.playcount,
+                            current.total_score, current.ranked_score, currentTotal, current.pp_raw, current.pp_country_rank,
+                            current.pp_rank, current.count_rank_ssh, current.count_rank_ss, current.count_rank_sh, current.count_rank_s,
+                            current.count_rank_a, current.total_seconds_played, current.level, current.accuracy, found.total_score,
+                            found.ranked_score, foundTotal, found.accuracy, found.pp_raw, found.level,
+                            found.pp_rank, found.pp_country_rank, found.playcount, found.count_rank_ssh, found.count_rank_ss,
+                            found.count_rank_sh, found.count_rank_s, found.count_rank_a, day, image
+                        ].join('\n')
                     );
+                    if (result) return result;
                 } else {
                     const current = await Api.getUser(userInfo.account, Api.modes[options.mode]);
                     const currentTotal = current.count300 + current.count100 + current.count50;
                     await coll.updateOne({ _id: session.userId }, { $push: { history: { ...current, _id: new ObjectID() } } });
-                    sayobot.MakePersonalCard(
-                        userInfo.DataFontColor, userInfo.ProfileFontColor, userInfo.SignFontColor,
-                        Api.modes[options.mode], userInfo.account, current.country, current.username, session.userId.toString(),
-                        userInfo.sign, userInfo.Background, userInfo.ProfileEdge, userInfo.DataEdge, userInfo.SignEdge,
-                        userInfo.Opacity, current.count300, current.count100, current.count50, current.playcount,
-                        current.total_score, current.ranked_score, currentTotal, current.pp_raw, current.pp_country_rank,
-                        current.pp_rank, current.count_rank_ssh, current.count_rank_ss, current.count_rank_sh, current.count_rank_s,
-                        current.count_rank_a, current.total_seconds_played, current.level, current.accuracy, current.total_score,
-                        current.ranked_score, currentTotal, current.accuracy, current.pp_raw, current.level,
-                        current.pp_rank, current.pp_country_rank, current.playcount, current.count_rank_ssh, current.count_rank_ss,
-                        current.count_rank_sh, current.count_rank_s, current.count_rank_a, day, image,
+                    const result = sayobot.MakePersonalCard(
+                        [
+                            userInfo.DataFontColor, userInfo.ProfileFontColor, userInfo.SignFontColor,
+                            Api.modes[options.mode], userInfo.account, current.country, current.username, session.userId.toString(),
+                            userInfo.sign, userInfo.Background, userInfo.ProfileEdge, userInfo.DataEdge, userInfo.SignEdge,
+                            userInfo.Opacity, current.count300, current.count100, current.count50, current.playcount,
+                            current.total_score, current.ranked_score, currentTotal, current.pp_raw, current.pp_country_rank,
+                            current.pp_rank, current.count_rank_ssh, current.count_rank_ss, current.count_rank_sh, current.count_rank_s,
+                            current.count_rank_a, current.total_seconds_played, current.level, current.accuracy, current.total_score,
+                            current.ranked_score, currentTotal, current.accuracy, current.pp_raw, current.level,
+                            current.pp_rank, current.pp_country_rank, current.playcount, current.count_rank_ssh, current.count_rank_ss,
+                            current.count_rank_sh, current.count_rank_s, current.count_rank_a, day, image,
+                        ].join('\n')
                     );
+                    if (result) return result;
                 }
-                return `[CQ:image,file=base64://${fs.readFileSync(image).toString('base64')}]`;
+                if (fs.existsSync(image)) {
+                    await sharp(image).png({ compressionLevel: 8 }).toFile(image + '.png');
+                    image = image + '.png';
+                }
+                return `[CQ:image,file=file://${image}]`;
             });
 
         app.command('osu.help [category]', 'Get help')
